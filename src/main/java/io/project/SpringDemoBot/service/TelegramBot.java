@@ -24,7 +24,9 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Component
@@ -32,6 +34,11 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private WeatherService weatherService;
+
+    private final Map<Long, String> userState = new HashMap<>(); // состояние юзера
 
     final BotConfig config;
 
@@ -46,6 +53,10 @@ public class TelegramBot extends TelegramLongPollingBot {
 
             Type /help to see this message again.""";
 
+    static final String YES_BUTTON = "YES_BUTTON";
+    static final String NO_BUTTON = "NO_BUTTON";
+    static final String ERROR_TEXT = "Error occurred: ";
+
     public TelegramBot(BotConfig config) {
         this.config = config;
         List<BotCommand> listOfCommands = new ArrayList<>();
@@ -54,7 +65,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         listOfCommands.add(new BotCommand("/deletedata", "Delete my data"));
         listOfCommands.add(new BotCommand("/help", "Info how to use this bot"));
         listOfCommands.add(new BotCommand("/settings", "Set your preferences"));
-
+        listOfCommands.add(new BotCommand("/register", "Registration button"));
         try {
             this.execute(new SetMyCommands(listOfCommands, new BotCommandScopeDefault(), null));
         } catch (TelegramApiException e) {
@@ -70,60 +81,57 @@ public class TelegramBot extends TelegramLongPollingBot {
             String messageText = update.getMessage().getText();
             long chatId = update.getMessage().getChatId();
 
-            if (messageText.contains("/send") && config.getOwnerId() == chatId) {
-                var textToSen = EmojiParser.parseToUnicode(messageText.substring(messageText.indexOf(" ")));
-                var users = userRepository.findAll();
-                for (User user : users) {
-                    sendMessage(user.getChatId(), textToSen);
+            if (userState.containsKey(chatId) && userState.get(chatId).equals("WAITING_FOR_CITY")) {
+                handleWeatherRequest(chatId, messageText);
+                userState.remove(chatId);
+            }
+            else {
+                switch (messageText) {
+                    case "/start":
+                        registerUser(update.getMessage());
+                        startCommandReceived(chatId, update.getMessage().getChat().getFirstName());
+                        break;
+                    case "/help":
+                        prepareAndSendMessage(chatId, HELP_TEXT);
+                        break;
+
+                    case "/register", "Register":
+                        register(chatId);
+                        break;
+
+                    case "Weather":
+                        // Запрашиваем город и сохраняем состояние
+                        prepareAndSendMessage(chatId, "Where do you live?");
+                        userState.put(chatId, "WAITING_FOR_CITY");  // Ожидаем город
+                        break;
+
+                    default:
+                        prepareAndSendMessage(chatId, "Sorry, command was not recognized");
                 }
             }
 
-            switch (messageText) {
-                case "/start":
-                    registerUser(update.getMessage());
-                    startCommandReceived(chatId, update.getMessage().getChat().getFirstName());
-                    break;
-                case "/help":
-                    sendMessage(chatId, HELP_TEXT);
-                    break;
-
-                case "/register":
-                    register(chatId);
-                    break;
-
-                default:
-                    sendMessage(chatId, "Sorry, command was not recognized");
+            if (messageText.contains("/send") && config.getOwnerId() == chatId) {
+                var textToSend = EmojiParser.parseToUnicode(messageText.substring(messageText.indexOf(" ")));
+                var users = userRepository.findAll();
+                for (User user : users) {
+                    prepareAndSendMessage(user.getChatId(), textToSend);
+                }
             }
+
+
+
         } else if (update.hasCallbackQuery()) {
             String callBackData = update.getCallbackQuery().getData();
             long messageId =update.getCallbackQuery().getMessage().getMessageId();
             long chatId = update.getCallbackQuery().getMessage().getChatId();
 
-            if (callBackData.equals("YES_BUTTON")) {
+            if (callBackData.equals(YES_BUTTON)) {
                 String text = "You pressed YES button!";
-                EditMessageText message = new EditMessageText();
-                message.setChatId(chatId);
-                message.setText(text);
-                message.setMessageId((int) messageId);
-
-                try {
-                    execute(message);
-                } catch (TelegramApiException e) {
-                    log.error("Error occurred: " + e.getMessage());
-                }
+                executeEditMessageText(text, chatId, messageId);
             }
-            else if (callBackData.equals("NO_BUTTON")) {
+            else if (callBackData.equals(NO_BUTTON)) {
                 String text = "You pressed NO button!";
-                EditMessageText message = new EditMessageText();
-                message.setChatId(chatId);
-                message.setText(text);
-                message.setMessageId((int) messageId);
-
-                try {
-                    execute(message);
-                } catch (TelegramApiException e) {
-                    log.error("Error occurred: " + e.getMessage());
-                }
+                executeEditMessageText(text, chatId, messageId);
             }
         }
     }
@@ -138,25 +146,20 @@ public class TelegramBot extends TelegramLongPollingBot {
         List<InlineKeyboardButton> rowInLine = new ArrayList<>();
         var yesButton = new InlineKeyboardButton();
         yesButton.setText("Yes");
-        yesButton.setCallbackData("YES_BUTTON");
+        yesButton.setCallbackData(YES_BUTTON);
 
         var noButton = new InlineKeyboardButton();
         noButton.setText("No");
-        noButton.setCallbackData("NO_BUTTON");
+        noButton.setCallbackData(NO_BUTTON);
 
         rowInLine.add(yesButton);
         rowInLine.add(noButton);
-
         rowsInLine.add(rowInLine);
+
         markupInLine.setKeyboard(rowsInLine);
         message.setReplyMarkup(markupInLine);
 
-        try {
-            execute(message);
-        } catch (TelegramApiException e) {
-            log.error("Error occurred: " + e.getMessage());
-        }
-
+        executeMessage(message);
     }
 
     private void registerUser(Message msg) {
@@ -218,10 +221,39 @@ public class TelegramBot extends TelegramLongPollingBot {
         keyboardMarkup.setKeyboard(keyboardRows);
         message.setReplyMarkup(keyboardMarkup);
 
+        executeMessage(message);
+    }
+
+    private void executeEditMessageText (String text, long chatId, long messageId) {
+        EditMessageText message = new EditMessageText();
+        message.setChatId(chatId);
+        message.setText(text);
+        message.setMessageId((int) messageId);
+
         try {
             execute(message);
         } catch (TelegramApiException e) {
-            log.error("Error occurred: " + e.getMessage());
+            log.error(ERROR_TEXT + e.getMessage());
         }
+    }
+
+    private void executeMessage (SendMessage message) {
+        try {
+            execute(message);
+        } catch (TelegramApiException e) {
+            log.error(ERROR_TEXT + e.getMessage());
+        }
+    }
+
+    private void prepareAndSendMessage(long chatId, String textToSend) {
+        SendMessage message = new SendMessage();
+        message.setChatId(String.valueOf(chatId));
+        message.setText(textToSend);
+        executeMessage(message);
+    }
+
+    private void handleWeatherRequest(Long chatId, String city) {
+        String weatherInfo = weatherService.getWeather(city); // Запрос погоды через сервис
+        sendMessage(chatId, weatherInfo);
     }
 }

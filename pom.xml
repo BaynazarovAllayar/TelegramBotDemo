@@ -32,6 +32,9 @@
 		<telegram.version>6.9.0</telegram.version>
 		<postgresql.version>42.7.3</postgresql.version>
 		<lombok.version>1.18.34</lombok.version>
+		<emoji.version>5.1.1</emoji.version>
+		<jaxen.version>2.3.1</jaxen.version>
+		<gson.version>2.10.1</gson.version>
 	</properties>
 
 	<dependencies>
@@ -52,6 +55,12 @@
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
+
 
 		<dependency>
 			<groupId>org.projectlombok</groupId>
@@ -80,15 +89,20 @@
 		<dependency>
 			<groupId>javax.xml.bind</groupId>
 			<artifactId>jaxb-api</artifactId>
-			<version>2.3.1</version>
+			<version>${jaxen.version}</version>
 		</dependency>
 
 		<dependency>
 			<groupId>com.vdurmont</groupId>
 			<artifactId>emoji-java</artifactId>
-			<version>5.1.1</version>
+			<version>${emoji.version}</version>
 		</dependency>
 
+		<dependency>
+			<groupId>com.google.code.gson</groupId>
+			<artifactId>gson</artifactId>
+			<version>${gson.version}</version>
+		</dependency>
 
 	</dependencies>
 
