@@ -2,11 +2,14 @@ package io.project.SpringDemoBot.service;
 
 import com.vdurmont.emoji.EmojiParser;
 import io.project.SpringDemoBot.config.BotConfig;
+import io.project.SpringDemoBot.model.Ads;
+import io.project.SpringDemoBot.model.AdsRepository;
 import io.project.SpringDemoBot.model.User;
 import io.project.SpringDemoBot.model.UserRepository;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
@@ -38,7 +41,10 @@ public class TelegramBot extends TelegramLongPollingBot {
     @Autowired
     private WeatherService weatherService;
 
-    private final Map<Long, String> userState = new HashMap<>(); // состояние юзера
+    @Autowired
+    private AdsRepository adsRepository;
+
+    private final Map<Long, String> userState = new HashMap<>();
 
     final BotConfig config;
 
@@ -100,9 +106,8 @@ public class TelegramBot extends TelegramLongPollingBot {
                         break;
 
                     case "Weather":
-                        // Запрашиваем город и сохраняем состояние
                         prepareAndSendMessage(chatId, "Where do you live?");
-                        userState.put(chatId, "WAITING_FOR_CITY");  // Ожидаем город
+                        userState.put(chatId, "WAITING_FOR_CITY");
                         break;
 
                     default:
@@ -253,7 +258,19 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     private void handleWeatherRequest(Long chatId, String city) {
-        String weatherInfo = weatherService.getWeather(city); // Запрос погоды через сервис
+        String weatherInfo = weatherService.getWeather(city);
         sendMessage(chatId, weatherInfo);
+    }
+
+    @Scheduled(cron = "${cron.scheduler}")
+    private void sendAds() {
+        var ads = adsRepository.findAll();
+        var users = userRepository.findAll();
+
+        for (Ads ad : ads) {
+            for (User user : users) {
+            prepareAndSendMessage(user.getChatId(), ad.getAd());
+            }
+        }
     }
 }
